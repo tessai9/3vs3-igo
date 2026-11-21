@@ -45,6 +45,16 @@ export class Game {
     this.neighborCache = this.board.map((_, i) => this.computeNeighbors(i));
   }
 
+  /** 探索用の複製(手順も含めて独立したコピー) */
+  clone(): Game {
+    const g = Object.create(Game.prototype) as Game;
+    Object.assign(g, this);
+    g.board = this.board.slice();
+    g.moves = this.moves.slice();
+    g.captures = { ...this.captures };
+    return g;
+  }
+
   idx(x: number, y: number): number {
     return y * this.size + x;
   }
