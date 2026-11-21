@@ -42,3 +42,7 @@ main に push すると GitHub Actions で自動デプロイされます。ロ�
 - `npm test` でロジックのテスト、`npm run typecheck` で型チェック
 - `npm run dev` で変更を監視して自動再ビルド
 - 環境変数: `PORT`(既定3000)、`CPU_DELAY_MS`(CPUの考慮時間、既定700)
+
+## オンライン対戦(検討中)
+
+Cloudflare Workers + Durable Objects でのマッチングの設計とスパイクは [docs/online-matchmaking.md](docs/online-matchmaking.md) と [cloud/](cloud/) を参照。
