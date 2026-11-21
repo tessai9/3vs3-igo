@@ -1,7 +1,7 @@
 // 1つの対局部屋。通信手段には依存せず、send 関数を受け取るだけにしてある。
-import { BLACK, WHITE, Game, type Color } from "../shared/game.js";
-import { cpuMove } from "../shared/cpu.js";
-import { MOVE_SECONDS, TEAM_SIZE, type ClientMsg, type Pin, type RoomView, type ServerMsg } from "../shared/protocol.js";
+import { BLACK, WHITE, Game, type Color } from "./game.js";
+import { cpuMove } from "./cpu.js";
+import { MOVE_SECONDS, TEAM_SIZE, type ClientMsg, type Pin, type RoomView, type ServerMsg } from "./protocol.js";
 
 interface Player {
   id: string;

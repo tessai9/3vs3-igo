@@ -4,7 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { networkInterfaces } from "node:os";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer } from "ws";
-import { Room } from "./room.js";
+import { Room } from "../shared/room.js";
 import type { ClientMsg } from "../shared/protocol.js";
 
 const PORT = Number(process.env.PORT ?? 3000);

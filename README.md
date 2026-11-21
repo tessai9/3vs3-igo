@@ -14,6 +14,11 @@ npm start
 
 一人で試すときは、ブラウザのタブ(またはシークレットウィンドウ)を複数開いて別々の席に座ると、味方へのピンや手番の回り方を確認できます。
 
+## スマホでさっと試す(GitHub Pages)
+
+https://tessai9.github.io/3vs3-igo/ を開くと、サーバーなしでブラウザだけで動く「あなた + CPU5人」の対局になります。
+main に push すると GitHub Actions で自動デプロイされます。ローカルでも `?local` を付けると同じモードになります。
+
 ## ルール(プロトタイプ時点)
 
 - 黒チーム3人・白チーム3人。打つ順番は 黒1→白1→黒2→白2→黒3→白3→黒1… のリレー方式
@@ -30,7 +35,7 @@ npm start
 | `src/shared/game.ts` | 対局ロジック(石取り・自殺手・コウ・終局・面積計算)。UIや通信に依存しない |
 | `src/shared/cpu.ts` | 空席用の簡易CPU |
 | `src/shared/protocol.ts` | クライアント⇔サーバーのメッセージ型 |
-| `src/server/room.ts` | 部屋・席・手番・秒読み・ピンの管理 |
+| `src/shared/room.ts` | 部屋・席・手番・秒読み・ピンの管理(サーバーとオフラインモードで共用) |
 | `src/server/server.ts` | 静的ファイル配信 + WebSocket(`ws`) |
 | `src/client/*.ts` | Web Components(`<go-app>` `<go-board>` `<team-panel>`)。フレームワークなし |
 

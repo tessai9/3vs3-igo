@@ -4,6 +4,11 @@ import "./team-panel.js";
 import { esc, type TeamPanel } from "./team-panel.js";
 import type { GoBoard } from "./go-board.js";
 import type { ClientMsg, RoomView, ServerMsg } from "../shared/protocol.js";
+import { Room } from "../shared/room.js";
+
+/** サーバーなし(GitHub Pages など)ではブラウザ内で部屋を動かし、CPUと対局する */
+const params = new URLSearchParams(location.search);
+const LOCAL_MODE = params.has("local") || location.protocol === "file:" || location.hostname.endsWith("github.io");
 
 const seatLabel = (room: RoomView, seat: number) => {
   const s = room.seats[seat];
@@ -21,6 +26,7 @@ function loadName(): string {
 export class GoApp extends HTMLElement {
   private root = this.attachShadow({ mode: "open" });
   private ws: WebSocket | null = null;
+  private localRoom: Room | null = null;
   private room: RoomView | null = null;
   private clockOffset = 0;
   private pinMode = false;
@@ -34,7 +40,7 @@ export class GoApp extends HTMLElement {
       <style>${CSS}</style>
       <header>
         <h1>3vs3 囲碁 <small>プロトタイプ</small></h1>
-        <label>部屋 <b>${esc(this.roomId)}</b></label>
+        ${LOCAL_MODE ? "" : `<label>部屋 <b>${esc(this.roomId)}</b></label>`}
         <label>名前 <input id="name" maxlength="16" value="${esc(this.name)}"></label>
         <span id="conn" class="conn">接続中…</span>
       </header>
@@ -69,6 +75,7 @@ export class GoApp extends HTMLElement {
   }
 
   private connect() {
+    if (LOCAL_MODE) return this.startLocal();
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(this.roomId)}`);
     this.ws = ws;
@@ -82,19 +89,32 @@ export class GoApp extends HTMLElement {
       this.$("#conn").className = "conn";
       setTimeout(() => this.connect(), 1500);
     };
-    ws.onmessage = (ev) => {
-      const m: ServerMsg = JSON.parse(ev.data);
-      if (m.t === "error") this.toast(m.message);
-      else {
-        this.clockOffset = m.room.serverNow - Date.now();
-        this.room = m.room;
-        this.render();
-      }
-    };
+    ws.onmessage = (ev) => this.receive(JSON.parse(ev.data));
+  }
+
+  /** 1人 + CPU5人で、ブラウザだけで対局する */
+  private startLocal() {
+    const room = new Room("local");
+    this.localRoom = room;
+    room.join("me", (m) => this.receive(m));
+    this.$("#conn").textContent = "オフライン(CPU対戦)";
+    this.$("#conn").className = "conn ok";
+    room.handle("me", { t: "hello", name: this.name });
+    room.handle("me", { t: "sit", seat: 0 });
+  }
+
+  private receive(m: ServerMsg) {
+    if (m.t === "error") this.toast(m.message);
+    else {
+      this.clockOffset = m.room.serverNow - Date.now();
+      this.room = m.room;
+      this.render();
+    }
   }
 
   private send(m: ClientMsg) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
+    if (this.localRoom) this.localRoom.handle("me", m);
+    else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
   }
 
   private myTurn() {

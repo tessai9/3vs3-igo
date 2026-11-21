@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BLACK, WHITE, Game } from "../src/shared/game.ts";
 import { cpuMove } from "../src/shared/cpu.ts";
-import { Room } from "../src/server/room.ts";
+import { Room } from "../src/shared/room.ts";
 import type { RoomView, ServerMsg } from "../src/shared/protocol.ts";
 
 /** "x,y" 形式で黒白交互に打つ。"pass" も可 */
