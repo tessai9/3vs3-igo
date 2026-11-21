@@ -1,0 +1,23 @@
+{
+  "name": "go3v3-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/client/main.ts --bundle --format=esm --target=es2022 --outfile=public/app.js",
+    "start": "npm run build && tsx src/server/server.ts",
+    "dev": "npm run build -- --watch & tsx watch src/server/server.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
