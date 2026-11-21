@@ -27,6 +27,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install onnx numpy
+      # KataGo のネットを取ってきて ONNX に変換(public/models/ に置く)
+      - run: npm run models
       - run: npm test
       - run: npm run build
       - uses: actions/configure-pages@v5

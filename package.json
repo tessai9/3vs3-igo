@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/client/main.ts --bundle --format=esm --target=es2022 --outfile=public/app.js",
+    "build": "esbuild src/client/main.ts --bundle --format=esm --target=es2022 --outfile=public/app.js && node tools/copy-ort.mjs",
     "start": "npm run build && tsx src/server/server.ts",
-    "dev": "npm run build -- --watch & tsx watch src/server/server.ts",
+    "dev": "node tools/copy-ort.mjs && (esbuild src/client/main.ts --bundle --format=esm --target=es2022 --outfile=public/app.js --watch & tsx watch src/server/server.ts)",
     "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "models": "sh tools/fetch-models.sh",
+    "ai-match": "tsx tools/ai-match.ts"
   },
   "dependencies": {
+    "onnxruntime-web": "^1.31.1",
     "ws": "^8.23.0"
   },
   "devDependencies": {

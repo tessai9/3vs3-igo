@@ -15,9 +15,14 @@ interface Seat {
   name: string;
 }
 
+/** 空席のCPU。null はパス。非同期でもよい(ブラウザのAIなど) */
+export type CpuPlayer = (game: Game) => number | null | Promise<number | null>;
+
 export interface RoomOptions {
   moveSeconds?: number;
+  /** CPUが打つまでの最低待ち時間 */
   cpuDelayMs?: number;
+  cpu?: CpuPlayer;
 }
 
 const SEAT_COUNT = TEAM_SIZE * 2;
@@ -38,11 +43,13 @@ export class Room {
   private log: string[] = [];
   private readonly moveMs: number;
   private readonly cpuDelayMs: number;
+  private readonly cpu: CpuPlayer;
 
   constructor(id: string, opts: RoomOptions = {}) {
     this.id = id;
     this.moveMs = (opts.moveSeconds ?? MOVE_SECONDS) * 1000;
     this.cpuDelayMs = opts.cpuDelayMs ?? 700;
+    this.cpu = opts.cpu ?? ((g) => cpuMove(g));
   }
 
   get playerCount() {
@@ -229,13 +236,28 @@ export class Room {
       }, this.moveMs);
     } else {
       this.deadline = null;
-      this.cpuTimer = setTimeout(() => {
-        if (this.status !== "playing" || this.game.moves.length !== moveIndex) return;
-        const p = cpuMove(this.game);
+      const game = this.game;
+      const stillMyTurn = () =>
+        this.status === "playing" && this.game === game && game.moves.length === moveIndex && !this.seats[seat].playerId;
+      // 考え始めるのはすぐ。打つのは最低 cpuDelayMs 待ってから(速すぎると人が追えないので)
+      const started = Date.now();
+      this.cpuTimer = setTimeout(async () => {
+        if (!stillMyTurn()) return;
+        let p: number | null;
+        try {
+          p = await this.cpu(game.clone());
+        } catch {
+          p = cpuMove(game);
+        }
+        const rest = this.cpuDelayMs - (Date.now() - started);
+        if (rest > 0) await new Promise((r) => setTimeout(r, rest));
+        // 考えている間に状況が変わっていたら捨てる
+        if (!stillMyTurn()) return;
+        if (p !== null && !game.tryPlay(p).ok) p = cpuMove(game);
         if (p === null) this.doPass(seat, false);
         else this.doMove(seat, p);
         this.afterChange();
-      }, this.cpuDelayMs);
+      }, 0);
     }
   }
 

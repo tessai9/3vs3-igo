@@ -5,6 +5,7 @@ import { esc, type TeamPanel } from "./team-panel.js";
 import type { GoBoard } from "./go-board.js";
 import type { ClientMsg, RoomView, ServerMsg } from "../shared/protocol.js";
 import { Room } from "../shared/room.js";
+import { AI_LEVELS, NnCpu, type AiLevel, type AiStatus } from "./nn-cpu.js";
 
 /** サーバーなし(GitHub Pages など)ではブラウザ内で部屋を動かし、CPUと対局する */
 const params = new URLSearchParams(location.search);
@@ -23,6 +24,16 @@ function loadName(): string {
   return `ゲスト${Math.floor(Math.random() * 90 + 10)}`;
 }
 
+function loadAiLevel(): AiLevel {
+  const q = params.get("ai");
+  if (q && q in AI_LEVELS) return q as AiLevel;
+  try {
+    const v = localStorage.getItem("go3v3.ai");
+    if (v && v in AI_LEVELS) return v as AiLevel;
+  } catch {}
+  return "b10";
+}
+
 export class GoApp extends HTMLElement {
   private root = this.attachShadow({ mode: "open" });
   private ws: WebSocket | null = null;
@@ -34,6 +45,7 @@ export class GoApp extends HTMLElement {
   private roomId = new URLSearchParams(location.search).get("room") || "lobby";
   private size = 9;
   private lastTurnSeat = -1;
+  private ai: NnCpu | null = null;
 
   connectedCallback() {
     this.root.innerHTML = `
@@ -42,6 +54,13 @@ export class GoApp extends HTMLElement {
         <h1>3vs3 囲碁 <small>プロトタイプ</small></h1>
         ${LOCAL_MODE ? "" : `<label>部屋 <b>${esc(this.roomId)}</b></label>`}
         <label>名前 <input id="name" maxlength="16" value="${esc(this.name)}"></label>
+        ${
+          LOCAL_MODE
+            ? `<label>CPU <select id="ai">${Object.entries(AI_LEVELS)
+                .map(([k, v]) => `<option value="${k}">${v.label}</option>`)
+                .join("")}</select></label><span id="aistat" class="conn ok"></span>`
+            : ""
+        }
         <span id="conn" class="conn">接続中…</span>
       </header>
       <section id="status"><div id="msg"></div><div class="timer"><i id="bar"></i></div><ol id="order"></ol></section>
@@ -94,7 +113,20 @@ export class GoApp extends HTMLElement {
 
   /** 1人 + CPU5人で、ブラウザだけで対局する */
   private startLocal() {
-    const room = new Room("local");
+    const ai = new NnCpu(loadAiLevel());
+    this.ai = ai;
+    const sel = this.$("#ai") as HTMLSelectElement;
+    sel.value = ai.level;
+    sel.addEventListener("change", () => {
+      ai.level = sel.value as AiLevel;
+      try {
+        localStorage.setItem("go3v3.ai", ai.level);
+      } catch {}
+      ai.preload();
+    });
+    ai.onStatus = (st) => this.showAiStatus(st);
+    ai.preload();
+    const room = new Room("local", { cpu: ai.move, cpuDelayMs: 500 });
     this.localRoom = room;
     room.join("me", (m) => this.receive(m));
     this.$("#conn").textContent = "オフライン(CPU対戦)";
@@ -103,7 +135,22 @@ export class GoApp extends HTMLElement {
     room.handle("me", { t: "sit", seat: 0 });
   }
 
+  private showAiStatus(st: AiStatus) {
+    const el = this.$("#aistat") as HTMLElement;
+    const last = this.ai?.last;
+    el.className = st.state === "fallback" ? "conn" : "conn ok";
+    el.textContent =
+      st.state === "loading"
+        ? "AIを読み込み中…"
+        : st.state === "fallback"
+          ? "AIを使えないので簡易CPUで代打ち中"
+          : st.level !== "simple" && last
+            ? `AI読み ${last.visits}局面 / ${(last.ms / 1000).toFixed(1)}秒 / 黒の勝率 ${Math.round(last.blackWinrate * 100)}%`
+            : "";
+  }
+
   private receive(m: ServerMsg) {
+    if (this.ai) this.showAiStatus(this.ai.status);
     if (m.t === "error") this.toast(m.message);
     else {
       this.clockOffset = m.room.serverNow - Date.now();
