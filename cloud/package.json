@@ -1,0 +1,20 @@
+{
+  "name": "go3v3-cloud",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:test": "wrangler dev --var QUEUE_WAIT_MS:3000 --var CPU_DELAY_MS:200",
+    "test": "node --import tsx --test test/*.test.ts",
+    "e2e": "node test/e2e.mjs",
+    "typecheck": "tsc -p .",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261121.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.166.0",
+    "ws": "^8.23.0"
+  },
+  "private": true,
+  "type": "module"
+}

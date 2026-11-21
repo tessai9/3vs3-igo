@@ -2,3 +2,5 @@ node_modules/
 public/app.js
 public/ort/
 public/models/
+.wrangler/
+.dev.vars

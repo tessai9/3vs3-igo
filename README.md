@@ -70,3 +70,7 @@ npm run ai-match -- 6 9   # ネット同士・簡易CPUとの対戦で強さと�
 - `npm test` でロジックのテスト、`npm run typecheck` で型チェック
 - `npm run dev` で変更を監視して自動再ビルド
 - 環境変数: `PORT`(既定3000)、`CPU_DELAY_MS`(CPUの考慮時間、既定700)
+
+## オンライン対戦(検討中)
+
+Cloudflare Workers + Durable Objects でのマッチングの設計とスパイクは [docs/online-matchmaking.md](docs/online-matchmaking.md) と [cloud/](cloud/) を参照。
