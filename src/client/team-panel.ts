@@ -4,10 +4,11 @@ import type { RoomView } from "../shared/protocol.js";
 export class TeamPanel extends HTMLElement {
   private root = this.attachShadow({ mode: "open" });
 
-  set data(d: { room: RoomView; color: 1 | 2 }) {
+  set data(d: { room: RoomView; color: 1 | 2; locked?: boolean }) {
     const { room, color } = d;
     const base = color === 1 ? 0 : 3;
-    const waiting = room.status === "waiting";
+    // クイックマッチでは席はサーバーが決めるので、座る・立つボタンは出さない
+    const waiting = room.status === "waiting" && !d.locked;
     const playing = room.status === "playing";
     const cap = color === 1 ? room.captures.black : room.captures.white;
     const seats = room.seats.slice(base, base + 3).map((s, i) => {

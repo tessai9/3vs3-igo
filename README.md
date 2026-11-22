@@ -14,6 +14,11 @@ npm start
 
 一人で試すときは、ブラウザのタブ(またはシークレットウィンドウ)を複数開いて別々の席に座ると、味方へのピンや手番の回り方を確認できます。
 
+## オンラインで遊ぶ(Cloudflare Workers)
+
+Cloudflare Workers + Durable Objects にデプロイしてあり、URLを開くとロビーからクイックマッチ・友達との部屋・CPU練習を選べます。
+デプロイ手順や構成は [cloud/README.md](cloud/README.md)。
+
 ## スマホでさっと試す(GitHub Pages)
 
 https://tessai9.github.io/3vs3-igo/ を開くと、サーバーなしでブラウザだけで動く「あなた + CPU5人」の対局になります。

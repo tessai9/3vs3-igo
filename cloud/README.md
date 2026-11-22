@@ -37,4 +37,21 @@ npm run e2e
 
 ## デプロイ
 
-`CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を設定して `npm run deploy`。
+`CLOUDFLARE_API_TOKEN`(Workers 編集テンプレートのトークン)と `CLOUDFLARE_ACCOUNT_ID` を環境変数で設定して、`cloud/` で `npm run deploy`。
+クライアントのビルド(`public/app.js`)もこのコマンドの中で行う。公開先は `https://go3v3.<アカウントのサブドメイン>.workers.dev`。
+
+トークンとアカウントIDはリポジトリに書かないこと。
+
+## 画面
+
+トップ(`/`)はロビー。クイックマッチ / 部屋を作る / 招待コードで入る / CPUと練習(`?local`)を選ぶ。
+
+- フレンド部屋は `?room=招待コード` で開ける。合言葉(token)を localStorage に覚えるので、リロードしても同じ席に戻る
+- クイックマッチは `?match=部屋ID`。token は sessionStorage に入るので、そのタブでのリロードなら戻れる
+- `?room=` に招待コード以外の名前を入れると、従来どおりの自由部屋(`/ws` 互換ルート)になる
+- ローカルの Node サーバー(リポジトリ直下の `npm start`)には `/api` が無いので、ロビーは出ずに従来の画面になる
+
+## 無料枠について
+
+Workers Free + SQLite 版 Durable Objects で動く(カード登録不要)。WebSocket をつないでいる間は DO が起きたままなので、
+1日あたりの DO 実行時間の無料枠を超えると、その日はエラーになる(課金はされない)。人が増えたら WebSocket Hibernation に移す。

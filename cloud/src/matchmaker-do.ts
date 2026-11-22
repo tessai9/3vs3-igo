@@ -31,10 +31,11 @@ export class MatchmakerDO extends DurableObject<Env> {
     const drop = () => {
       this.sockets.delete(id);
       this.queue.remove(id);
+      this.broadcast();
     };
     ws.addEventListener("close", drop);
     ws.addEventListener("error", drop);
-    this.send(ws, { t: "queued", position: this.queue.size, waitMs: this.waitMs });
+    this.broadcast();
     await this.tick();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -43,6 +44,12 @@ export class MatchmakerDO extends DurableObject<Env> {
     try {
       ws.send(JSON.stringify(m));
     } catch {}
+  }
+
+  /** 並んでいる全員に、いま何人待っているかを知らせる */
+  private broadcast() {
+    const n = this.queue.size;
+    for (const ws of this.sockets.values()) this.send(ws, { t: "queued", position: n, waitMs: this.waitMs });
   }
 
   private async tick() {
@@ -58,6 +65,7 @@ export class MatchmakerDO extends DurableObject<Env> {
         ws.close(1000, "matched");
       }
     }
+    this.broadcast();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     const d = this.queue.nextDeadline();

@@ -1,6 +1,8 @@
 // アプリ全体。WebSocketでサーバーとつなぎ、受け取った状態を子コンポーネントに配る。
 import "./go-board.js";
 import "./team-panel.js";
+import "./go-lobby.js";
+import { hasOnlineApi, isInviteCode, type GoLobby, type OnlineConn } from "./go-lobby.js";
 import { esc, type TeamPanel } from "./team-panel.js";
 import type { GoBoard } from "./go-board.js";
 import type { ClientMsg, RoomView, ServerMsg } from "../shared/protocol.js";
@@ -42,7 +44,10 @@ export class GoApp extends HTMLElement {
   private clockOffset = 0;
   private pinMode = false;
   private name = loadName();
-  private roomId = new URLSearchParams(location.search).get("room") || "lobby";
+  /** オンライン時の接続先。null はロビー表示中 */
+  private conn: OnlineConn | null = null;
+  /** 開いてから一度もつながらずに失敗した回数(部屋が無いときにロビーへ戻すため) */
+  private failures = 0;
   private size = 9;
   private lastTurnSeat = -1;
   private ai: NnCpu | null = null;
@@ -52,7 +57,7 @@ export class GoApp extends HTMLElement {
       <style>${CSS}</style>
       <header>
         <h1>3vs3 囲碁 <small>プロトタイプ</small></h1>
-        ${LOCAL_MODE ? "" : `<label>部屋 <b>${esc(this.roomId)}</b></label>`}
+        <span id="roominfo"></span>
         <label>名前 <input id="name" maxlength="16" value="${esc(this.name)}"></label>
         ${
           LOCAL_MODE
@@ -63,6 +68,8 @@ export class GoApp extends HTMLElement {
         }
         <span id="conn" class="conn">接続中…</span>
       </header>
+      <go-lobby id="lobby" hidden></go-lobby>
+      <div id="game" hidden>
       <section id="status"><div id="msg"></div><div class="timer"><i id="bar"></i></div><ol id="order"></ol></section>
       <main>
         <team-panel id="black"></team-panel>
@@ -73,6 +80,7 @@ export class GoApp extends HTMLElement {
         <team-panel id="white"></team-panel>
       </main>
       <section id="log"></section>
+      </div>
       <div id="toast"></div>`;
 
     const nameInput = this.$("#name") as HTMLInputElement;
@@ -85,7 +93,10 @@ export class GoApp extends HTMLElement {
     });
     this.root.addEventListener("send", (e) => this.send((e as CustomEvent).detail));
     this.root.addEventListener("board-tap", (e) => this.onTap((e as CustomEvent).detail));
-    this.connect();
+    const lobby = this.$("#lobby") as GoLobby;
+    lobby.getName = () => this.name;
+    lobby.addEventListener("enter", (e) => this.enter((e as CustomEvent<OnlineConn>).detail));
+    void this.boot();
     setInterval(() => this.tickTimer(), 200);
   }
 
@@ -93,20 +104,132 @@ export class GoApp extends HTMLElement {
     return this.root.querySelector(sel)!;
   }
 
+  /** URLから、ロビーを出すか・どの部屋に入るかを決める */
+  private async boot() {
+    if (LOCAL_MODE) {
+      (this.$("#game") as HTMLElement).hidden = false;
+      return this.startLocal();
+    }
+    const room = params.get("room");
+    const match = params.get("match");
+    if (match) {
+      let token: string | null = null;
+      try {
+        token = sessionStorage.getItem(`go3v3.match.${match}`);
+      } catch {}
+      if (token) return this.enter({ kind: "match", roomId: match, token });
+      if (await hasOnlineApi()) return this.showLobby("この対局には入れません(終了したか、別の端末で開かれています)");
+    }
+    if (room && isInviteCode(room.toUpperCase()) && (await hasOnlineApi())) return this.enter({ kind: "friend", code: room.toUpperCase() });
+    if (room) return this.enter({ kind: "legacy", room });
+    // ローカルの Node サーバー(npm start)にはロビーが無いので、従来どおり lobby 部屋に入る
+    if (await hasOnlineApi()) this.showLobby();
+    else this.enter({ kind: "legacy", room: "lobby" });
+  }
+
+  private showLobby(error = "") {
+    this.closeWs();
+    this.conn = null;
+    this.room = null;
+    history.replaceState(null, "", location.pathname);
+    (this.$("#game") as HTMLElement).hidden = true;
+    const lobby = this.$("#lobby") as GoLobby;
+    lobby.hidden = false;
+    lobby.showMenu(error);
+    this.$("#roominfo").innerHTML = "";
+    this.$("#conn").textContent = "";
+  }
+
+  private enter(conn: OnlineConn) {
+    this.closeWs();
+    this.conn = conn;
+    this.room = null;
+    this.failures = 0;
+    const q = conn.kind === "match" ? `?match=${conn.roomId}` : `?room=${encodeURIComponent(conn.kind === "friend" ? conn.code : conn.room)}`;
+    history.replaceState(null, "", location.pathname + q);
+    (this.$("#lobby") as HTMLElement).hidden = true;
+    (this.$("#game") as HTMLElement).hidden = false;
+    this.renderRoomInfo();
+    this.connect();
+  }
+
+  private renderRoomInfo() {
+    const c = this.conn;
+    const el = this.$("#roominfo");
+    if (!c) return void (el.innerHTML = "");
+    if (c.kind === "legacy") el.innerHTML = `<label>部屋 <b>${esc(c.room)}</b></label>`;
+    else if (c.kind === "match") el.innerHTML = `<b>クイックマッチ</b>`;
+    else {
+      el.innerHTML = `<label>招待コード <b class="code">${c.code}</b></label> <button id="invite" class="small">招待リンクを送る</button>`;
+      (el.querySelector("#invite") as HTMLElement).onclick = () => this.invite(c.code);
+    }
+  }
+
+  private async invite(code: string) {
+    const url = `${location.origin}${location.pathname}?room=${code}`;
+    const data = { title: "3vs3 囲碁", text: `3vs3 囲碁で遊ぼう(招待コード ${code})`, url };
+    try {
+      if (navigator.share) return await navigator.share(data);
+    } catch {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      this.toast("招待リンクをコピーしました");
+    } catch {
+      prompt("このリンクを送ってください", url);
+    }
+  }
+
+  private closeWs() {
+    const ws = this.ws;
+    this.ws = null;
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+    }
+  }
+
+  private wsUrl(c: OnlineConn) {
+    const base = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+    const name = encodeURIComponent(this.name);
+    if (c.kind === "legacy") return `${base}/ws?room=${encodeURIComponent(c.room)}`;
+    if (c.kind === "match") return `${base}/api/rooms/${c.roomId}/ws?token=${encodeURIComponent(c.token)}`;
+    let token = "";
+    try {
+      token = localStorage.getItem(`go3v3.friend.${c.code}`) ?? "";
+    } catch {}
+    return `${base}/api/rooms/${c.code}/ws?name=${name}&token=${encodeURIComponent(token)}`;
+  }
+
   private connect() {
-    if (LOCAL_MODE) return this.startLocal();
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(this.roomId)}`);
+    const conn = this.conn;
+    if (!conn) return;
+    const ws = new WebSocket(this.wsUrl(conn));
     this.ws = ws;
+    let opened = false;
     ws.onopen = () => {
+      opened = true;
+      this.failures = 0;
       this.$("#conn").textContent = "接続済み";
       this.$("#conn").className = "conn ok";
       this.send({ t: "hello", name: this.name });
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      if (this.ws !== ws) return;
+      this.ws = null;
+      if (ev.code === 4000) {
+        this.$("#conn").textContent = "別のタブで開かれたので切断しました";
+        this.$("#conn").className = "conn";
+        return;
+      }
+      // 部屋が無い・合言葉が違うときは何度やっても入れないので、ロビーに戻す
+      if (!opened && ++this.failures >= 4 && conn.kind !== "legacy") return this.showLobby("部屋が見つかりませんでした");
       this.$("#conn").textContent = "切断(再接続中…)";
       this.$("#conn").className = "conn";
-      setTimeout(() => this.connect(), 1500);
+      setTimeout(() => {
+        if (this.conn === conn && !this.ws) this.connect();
+      }, 1500);
     };
     ws.onmessage = (ev) => this.receive(JSON.parse(ev.data));
   }
@@ -149,8 +272,17 @@ export class GoApp extends HTMLElement {
             : "";
   }
 
-  private receive(m: ServerMsg) {
+  private receive(m: ServerMsg | { t: "session"; token: string }) {
     if (this.ai) this.showAiStatus(this.ai.status);
+    if (m.t === "session") {
+      // フレンド部屋の合言葉。再接続やリロードで同じ席に戻るために覚えておく
+      if (this.conn?.kind === "friend") {
+        try {
+          localStorage.setItem(`go3v3.friend.${this.conn.code}`, m.token);
+        } catch {}
+      }
+      return;
+    }
     if (m.t === "error") this.toast(m.message);
     else {
       this.clockOffset = m.room.serverNow - Date.now();
@@ -207,7 +339,12 @@ export class GoApp extends HTMLElement {
     // 状況メッセージ
     let msg = "";
     if (r.status === "waiting") {
-      msg = r.you.seat === null ? "好きな席に座ってください。空席はCPUが打ちます。" : "全員そろったら「対局開始」を押してください(空席はCPU)。";
+      msg =
+        this.conn?.kind === "match"
+          ? "みんなの接続を待っています。15秒たつと、そろっていなくても始まります。"
+          : r.you.seat === null
+            ? "好きな席に座ってください。空席はCPUが打ちます。"
+            : "全員そろったら「対局開始」を押してください(空席はCPU)。";
     } else if (r.status === "playing") {
       msg = mine
         ? `<b class="you">あなたの番です</b>`
@@ -233,8 +370,9 @@ export class GoApp extends HTMLElement {
     }
     this.$("#order").innerHTML = order.join("");
 
-    (this.$("#black") as TeamPanel).data = { room: r, color: 1 };
-    (this.$("#white") as TeamPanel).data = { room: r, color: 2 };
+    const locked = this.conn?.kind === "match";
+    (this.$("#black") as TeamPanel).data = { room: r, color: 1, locked };
+    (this.$("#white") as TeamPanel).data = { room: r, color: 2, locked };
     const myColor = r.you.seat === null ? null : r.seats[r.you.seat].color;
     (this.$("#board") as GoBoard).data = {
       size: r.size,
@@ -248,8 +386,12 @@ export class GoApp extends HTMLElement {
 
     // 操作ボタン
     const c = this.$("#controls");
-    if (r.status === "waiting") {
-      c.innerHTML = `
+    const online = !!this.conn && this.conn.kind !== "legacy";
+    const leave = online ? `<button id="leave">ロビーへ</button>` : "";
+    if (r.status === "waiting" && this.conn?.kind === "match") {
+      c.innerHTML = leave;
+    } else if (r.status === "waiting") {
+      c.innerHTML = `${leave}
         <select id="size"><option value="9">9路</option><option value="13">13路</option></select>
         <button id="start" class="primary" ${r.you.seat === null ? "disabled" : ""}>対局開始</button>`;
       const sel = c.querySelector("#size") as HTMLSelectElement;
@@ -275,11 +417,19 @@ export class GoApp extends HTMLElement {
         }
       };
     } else if (r.status === "playing") {
-      c.innerHTML = `<span class="sub">観戦中です。対局が終わると席に座れます。</span>`;
+      c.innerHTML = `<span class="sub">観戦中です。対局が終わると席に座れます。</span>${leave}`;
+    } else if (this.conn?.kind === "match") {
+      c.innerHTML = `${leave}<button id="again" class="primary">もう一度クイックマッチ</button>`;
+      (c.querySelector("#again") as HTMLElement).onclick = () => {
+        this.showLobby();
+        (this.$("#lobby") as GoLobby).quickMatch();
+      };
     } else {
-      c.innerHTML = `<button id="again" class="primary">もう一局(席を選び直す)</button>`;
+      c.innerHTML = `${leave}<button id="again" class="primary">もう一局(席を選び直す)</button>`;
       (c.querySelector("#again") as HTMLElement).onclick = () => this.send({ t: "reset" });
     }
+    const lb = c.querySelector("#leave") as HTMLElement | null;
+    if (lb) lb.onclick = () => this.showLobby();
 
     this.$("#log").innerHTML = r.log.slice().reverse().map((l) => `<div>${esc(l)}</div>`).join("");
   }
@@ -323,6 +473,10 @@ button.primary { background:var(--accent); border-color:var(--accent); color:#ff
 button.on { background:#e8463c; border-color:#e8463c; color:#fff; }
 button.danger { color:var(--danger); }
 .sub { color:var(--sub); }
+button.small { padding:4px 10px; font-size:12px; }
+.code { letter-spacing:.12em; font-family:ui-monospace, monospace; }
+#roominfo { display:flex; align-items:center; gap:8px; }
+[hidden] { display:none !important; }
 #log { margin-top:14px; font-size:12px; color:var(--sub); max-height:160px; overflow:auto; }
 #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(80px); background:#333; color:#fff;
          padding:8px 16px; border-radius:8px; opacity:0; transition:.2s; pointer-events:none; }

@@ -6,7 +6,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "e2e": "node test/e2e.mjs",
     "typecheck": "tsc -p .",
-    "deploy": "wrangler deploy"
+    "deploy": "npm --prefix .. run build && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261121.1",
