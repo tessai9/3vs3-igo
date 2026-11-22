@@ -1,7 +1,7 @@
 // 対局部屋の Durable Object。既存の Room クラス(src/server/room.ts)を包むだけ。
 // 1部屋 = 1インスタンスなので、手番・30秒タイマーの判定はここが唯一の正になる。
 import { DurableObject } from "cloudflare:workers";
-import { Room } from "../../src/server/room.js";
+import { Room } from "../../src/shared/room.js";
 import type { ClientMsg } from "../../src/shared/protocol.js";
 import type { Ticket } from "./queue.js";
 import type { Env } from "./worker.js";
@@ -27,19 +27,25 @@ export class GameRoomDO extends DurableObject<Env> {
     const url = new URL(req.url);
     if (url.pathname === "/init" && req.method === "POST") {
       this.init = (await req.json()) as Init;
-      this.room = new Room(this.init.roomId, {
-        cpuDelayMs: Number(this.env.CPU_DELAY_MS ?? 700),
-        moveSeconds: Number(this.env.MOVE_SECONDS ?? 30),
-      });
+      // 誰も繋いでいない間にインスタンスが破棄されても部屋に入れるよう、部屋の設定だけ保存しておく
+      await this.ctx.storage.put("init", this.init);
+      this.room = this.newRoom(this.init.roomId);
       if (this.init.mode === "match") this.autostart = setTimeout(() => this.start(), AUTOSTART_MS);
       return new Response("ok");
+    }
+    if (!this.init) {
+      const saved = await this.ctx.storage.get<Init>("init");
+      if (saved) {
+        this.init = saved;
+        this.room = this.newRoom(saved.roomId);
+      }
     }
     if (req.headers.get("upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
     const legacy = url.pathname === "/ws";
     if (legacy && !this.room) {
       const roomId = (url.searchParams.get("room") || "lobby").slice(0, 32);
       this.init = { mode: "friend", roomId };
-      this.room = new Room(roomId, { cpuDelayMs: Number(this.env.CPU_DELAY_MS ?? 700), moveSeconds: Number(this.env.MOVE_SECONDS ?? 30) });
+      this.room = this.newRoom(roomId);
     }
     if (!this.room || !this.init) return new Response("room not found", { status: 404 });
 
@@ -101,6 +107,10 @@ export class GameRoomDO extends DurableObject<Env> {
     ws.addEventListener("close", close);
     ws.addEventListener("error", close);
     return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  private newRoom(roomId: string) {
+    return new Room(roomId, { cpuDelayMs: Number(this.env.CPU_DELAY_MS ?? 700), moveSeconds: Number(this.env.MOVE_SECONDS ?? 30) });
   }
 
   private drop(id: string) {
