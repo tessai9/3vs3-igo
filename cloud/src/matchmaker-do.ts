@@ -1,11 +1,15 @@
 // クイックマッチ用 Durable Object。並んでいる人のWebSocketを持ち、成立したら部屋と席を通知する。
 import { DurableObject } from "cloudflare:workers";
 import { MatchQueue } from "./queue.js";
+import { cleanName } from "../../src/shared/names.js";
 import type { Env } from "./worker.js";
 
 export type QueueServerMsg =
   | { t: "queued"; position: number; waitMs: number }
   | { t: "matched"; roomId: string; token: string; seat: number; name: string; humans: number };
+
+/** 待ち行列に同時に並べる上限(カジュアル規模の想定の十分上) */
+const MAX_QUEUE = 300;
 
 export class MatchmakerDO extends DurableObject<Env> {
   private queue: MatchQueue;
@@ -21,7 +25,8 @@ export class MatchmakerDO extends DurableObject<Env> {
 
   async fetch(req: Request): Promise<Response> {
     if (req.headers.get("upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
-    const name = (new URL(req.url).searchParams.get("name") ?? "ゲスト").slice(0, 16);
+    if (this.sockets.size >= MAX_QUEUE) return new Response("queue is full", { status: 503 });
+    const name = cleanName(new URL(req.url).searchParams.get("name"));
     const pair = new WebSocketPair();
     const ws = pair[1];
     ws.accept();

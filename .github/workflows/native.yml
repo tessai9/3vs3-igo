@@ -47,6 +47,12 @@ jobs:
       - if: steps.models-cache.outputs.cache-hit != 'true'
         run: pip install onnx numpy && npm run models
       - run: npm run build
+      # wrangler dev(アカウント不要)で Worker を立ち上げて、対局・再接続・乗っ取り防止・制限・再起動後の復元を確かめる
+      - name: Cloud E2E
+        working-directory: cloud
+        run: sh test/run-e2e.sh
+      - if: failure()
+        run: cat cloud/.wrangler/e2e.log || true
       - uses: actions/upload-artifact@v4
         with:
           name: web

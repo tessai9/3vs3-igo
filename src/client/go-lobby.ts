@@ -121,6 +121,7 @@ export class GoLobby extends HTMLElement {
     (this.$("#create") as HTMLButtonElement).disabled = true;
     try {
       const r = await fetch(`${API_ORIGIN}/api/rooms`, { method: "POST" });
+      if (r.status === 429) return this.showMenu("部屋を作りすぎです。1分ほど待ってから試してください");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { code } = (await r.json()) as { code: string };
       this.enter({ kind: "friend", code });

@@ -32,8 +32,13 @@ function client(url) {
 }
 
 async function quickMatch(names) {
-  const qs = names.map((n) => client(`${WS}/api/queue?name=${encodeURIComponent(n)}`));
-  await Promise.all(qs.map((q) => q.open));
+  // 並ぶ順で席が決まるので、1人ずつ順に並ぶ
+  const qs = [];
+  for (const n of names) {
+    const q = client(`${WS}/api/queue?name=${encodeURIComponent(n)}`);
+    await q.open;
+    qs.push(q);
+  }
   return Promise.all(qs.map((q) => q.waitFor((m) => m.t === "matched")));
 }
 
@@ -102,17 +107,51 @@ async function quickMatch(names) {
   guest.ws.close();
   console.log("ok 3 - フレンド部屋");
 }
-// 4) 既存クライアント互換ルート /ws?room=
+// 4) 旧UI向けの自由部屋ルート /ws は廃止(誰でも部屋を量産できたため)
 {
-  const c = client(`${WS}/ws?room=e2e-${Date.now()}`);
+  const old = new WebSocket(`${WS}/ws?room=e2e`);
+  const status = await new Promise((r) => old.on("unexpected-response", (_req, res) => r(res.statusCode)).on("open", () => r(101)));
+  assert.notEqual(status, 101, "WebSocket としてはつながらない");
+  console.log("ok 4 - 自由部屋ルートは無い");
+}
+
+// 5) フレンド部屋: 対局中に切断した人の席は、同じ名前の他人には取れず、本人の token でだけ戻れる
+{
+  const { code } = await (await fetch(`${BASE}/api/rooms`, { method: "POST" })).json();
+  const a = client(`${WS}/api/rooms/${code}/ws?name=たろう`);
+  await a.open;
+  const { token } = await a.waitFor((m) => m.t === "session");
+  a.send({ t: "sit", seat: 0 });
+  a.send({ t: "start", size: 9 });
+  await a.waitFor((m) => m.t === "state" && m.room.status === "playing");
+  a.ws.close();
+  await a.closed;
+  await sleep(200);
+  const thief = client(`${WS}/api/rooms/${code}/ws?name=たろう`);
+  await thief.open;
+  const st = (await thief.waitFor((m) => m.t === "state")).room;
+  assert.equal(st.you.seat, null, "同名の他人は席に戻れない");
+  const back = client(`${WS}/api/rooms/${code}/ws?name=たろう&token=${token}`);
+  await back.open;
+  await back.waitFor((m) => m.t === "state" && m.room.you.seat === 0);
+  thief.ws.close();
+  back.ws.close();
+  console.log("ok 5 - 席の乗っ取り防止");
+}
+
+// 6) 大きすぎるメッセージは無視、送りすぎると切断。名前はフィルタされる
+{
+  const { code } = await (await fetch(`${BASE}/api/rooms`, { method: "POST" })).json();
+  const c = client(`${WS}/api/rooms/${code}/ws?name=${encodeURIComponent("ちんこ")}`);
   await c.open;
-  c.send({ t: "hello", name: "旧UI" });
-  c.send({ t: "sit", seat: 0 });
-  c.send({ t: "start", size: 9 });
-  const st = (await c.waitFor((m) => m.t === "state" && m.room.status === "playing")).room;
-  assert.equal(st.seats[0].name, "旧UI");
-  assert.ok(!c.msgs.some((m) => m.t === "session"), "旧UIには session を送らない");
-  c.ws.close();
-  console.log("ok 4 - 既存クライアント互換");
+  const s = await c.waitFor((m) => m.t === "session");
+  assert.equal(s.name, "ゲスト");
+  c.send({ t: "hello", name: "x".repeat(5000) });
+  await sleep(200);
+  assert.equal(c.state.you.name, "ゲスト", "大きすぎるメッセージは無視");
+  for (let i = 0; i < 80; i++) c.send({ t: "pin", point: 0 });
+  const code1008 = await new Promise((r) => c.ws.on("close", (code) => r(code)));
+  assert.equal(code1008, 1008);
+  console.log("ok 6 - メッセージ制限と名前フィルタ");
 }
 process.exit(0);
