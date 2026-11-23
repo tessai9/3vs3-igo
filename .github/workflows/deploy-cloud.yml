@@ -41,6 +41,13 @@ jobs:
             cloud/package-lock.json
       - if: steps.check.outputs.ok == 'true'
         run: npm ci && npm test
+      # KataGo のネット(ONNX)を作って一緒に配信する(無いと「CPUと打つ」が簡易CPUになる)
+      - if: steps.check.outputs.ok == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.check.outputs.ok == 'true'
+        run: pip install onnx numpy && npm run models
       - if: steps.check.outputs.ok == 'true'
         working-directory: cloud
         run: npm ci && npm run typecheck && npm test && npm run deploy

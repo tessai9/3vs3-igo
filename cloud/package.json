@@ -7,7 +7,7 @@
     "e2e": "node test/e2e.mjs",
     "e2e:all": "sh test/run-e2e.sh",
     "typecheck": "tsc -p .",
-    "deploy": "npm --prefix .. run build && wrangler deploy"
+    "deploy": "npm --prefix .. run build && node ../tools/check-models.mjs && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261121.1",
