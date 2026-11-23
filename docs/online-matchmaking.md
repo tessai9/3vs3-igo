@@ -97,7 +97,7 @@ Cloudflare DO の料金(2026年11月、[公式](https://developers.cloudflare.co
 - `src/queue.ts` 待ち行列の純粋ロジック(単体テストあり)
 - `src/matchmaker-do.ts` クイックマッチのDO
 - `src/room-do.ts` 部屋のDO。`src/server/room.ts` を**無改造で**包んでいる
-- `src/worker.ts` 入口。`public/` の既存クライアントもここから配信し、`/ws?room=` の互換ルートで今のUIがそのまま遊べる
+- `src/worker.ts` 入口。`public/` の既存クライアントもここから配信し、(`/ws?room=` の互換ルートは 2026-11-23 に乱用対策で廃止)
 - `test/e2e.mjs` `wrangler dev` に対して6人分のクライアントを模擬するテスト
   1. 6人揃うと即マッチして全員人間で開始
   2. 2人だけ → 待ち時間後に CPU 4人で開始 → 白の人が切断 → CPUが代打ち → 同じtokenで戻ると席に復帰

@@ -1,10 +1,13 @@
 // 1つの対局部屋。通信手段には依存せず、send 関数を受け取るだけにしてある。
 import { BLACK, WHITE, Game, type Color } from "./game.js";
 import { cpuMove } from "./cpu.js";
+import { cleanName } from "./names.js";
 import { MOVE_SECONDS, TEAM_SIZE, type ClientMsg, type Pin, type RoomView, type ServerMsg } from "./protocol.js";
 
 interface Player {
   id: string;
+  /** 再接続で同じ席に戻るための合言葉(サーバーが発行した token)。無ければ名前で戻す */
+  key: string | null;
   name: string;
   seat: number | null;
   send: (m: ServerMsg) => void;
@@ -13,6 +16,20 @@ interface Player {
 interface Seat {
   playerId: string | null;
   name: string;
+  /** 座った人の key。対局中に切断した席に戻れるのは同じ key の人だけ */
+  key: string | null;
+}
+
+/** 部屋の状態を保存・復元するための形(ピンと秒読みは保存しない) */
+export interface RoomSnapshot {
+  v: 1;
+  size: number;
+  /** null はパス */
+  moves: (number | null)[];
+  status: RoomView["status"];
+  result: RoomView["result"];
+  log: string[];
+  seats: { name: string; key: string | null }[];
 }
 
 /** 空席のCPU。null はパス。非同期でもよい(ブラウザのAIなど) */
@@ -23,16 +40,19 @@ export interface RoomOptions {
   /** CPUが打つまでの最低待ち時間 */
   cpuDelayMs?: number;
   cpu?: CpuPlayer;
+  /** 盤面・席・状態が変わるたびに呼ばれる(保存用) */
+  onChange?: () => void;
 }
 
 const SEAT_COUNT = TEAM_SIZE * 2;
+const emptySeat = (): Seat => ({ playerId: null, name: "", key: null });
 const seatColor = (seat: number): Color => (seat < TEAM_SIZE ? BLACK : WHITE);
 const colorName = (c: Color) => (c === BLACK ? "黒" : "白");
 
 export class Room {
   readonly id: string;
   private players = new Map<string, Player>();
-  private seats: Seat[] = Array.from({ length: SEAT_COUNT }, () => ({ playerId: null, name: "" }));
+  private seats: Seat[] = Array.from({ length: SEAT_COUNT }, () => emptySeat());
   private game = new Game(9);
   private status: RoomView["status"] = "waiting";
   private deadline: number | null = null;
@@ -44,12 +64,14 @@ export class Room {
   private readonly moveMs: number;
   private readonly cpuDelayMs: number;
   private readonly cpu: CpuPlayer;
+  private readonly onChange: (() => void) | undefined;
 
   constructor(id: string, opts: RoomOptions = {}) {
     this.id = id;
     this.moveMs = (opts.moveSeconds ?? MOVE_SECONDS) * 1000;
     this.cpuDelayMs = opts.cpuDelayMs ?? 700;
     this.cpu = opts.cpu ?? ((g) => cpuMove(g));
+    this.onChange = opts.onChange;
   }
 
   get playerCount() {
@@ -63,8 +85,8 @@ export class Room {
     return (color === BLACK ? 0 : TEAM_SIZE) + order;
   }
 
-  join(id: string, send: (m: ServerMsg) => void) {
-    this.players.set(id, { id, name: "ゲスト", seat: null, send });
+  join(id: string, send: (m: ServerMsg) => void, key: string | null = null) {
+    this.players.set(id, { id, key, name: "ゲスト", seat: null, send });
   }
 
   leave(id: string) {
@@ -74,7 +96,7 @@ export class Room {
     if (p.seat !== null) {
       const seat = this.seats[p.seat];
       seat.playerId = null;
-      if (this.status === "waiting") seat.name = "";
+      if (this.status === "waiting") this.seats[p.seat] = emptySeat();
       else this.addLog(`${seat.name} さんが切断しました(CPUが代打ちします)`);
     }
     this.afterChange();
@@ -87,14 +109,14 @@ export class Room {
 
     switch (msg.t) {
       case "hello": {
-        p.name = String(msg.name || "ゲスト").slice(0, 16);
-        // 対局中に切断した人が同じ名前で戻ってきたら席に戻す
-        if (this.status !== "waiting") {
-          const i = this.seats.findIndex((s) => s.playerId === null && s.name === p.name);
+        p.name = cleanName(msg.name);
+        // 対局中に切断した人が戻ってきたら席に戻す。key があれば key で、無ければ(ローカル版)名前で照合する
+        if (this.status !== "waiting" && p.seat === null) {
+          const i = this.seats.findIndex((s) => s.playerId === null && !!s.name && (p.key ? s.key === p.key : s.key === null && s.name === p.name));
           if (i >= 0) {
             this.seats[i].playerId = id;
             p.seat = i;
-            this.addLog(`${p.name} さんが戻りました`);
+            this.addLog(`${this.seats[i].name} さんが戻りました`);
           }
         }
         break;
@@ -104,7 +126,7 @@ export class Room {
         if (!(msg.seat >= 0 && msg.seat < SEAT_COUNT)) return err("その席はありません");
         if (this.seats[msg.seat].playerId) return err("その席は埋まっています");
         this.vacate(p);
-        this.seats[msg.seat] = { playerId: id, name: p.name };
+        this.seats[msg.seat] = { playerId: id, name: p.name, key: p.key };
         p.seat = msg.seat;
         break;
       }
@@ -154,7 +176,7 @@ export class Room {
         this.game = new Game(this.game.size);
         this.clearPins();
         // 切断済みの席は空ける
-        for (const s of this.seats) if (!s.playerId) s.name = "";
+        this.seats = this.seats.map((s) => (s.playerId ? s : emptySeat()));
         this.addLog(`${p.name} さんが部屋をリセットしました`);
         break;
       }
@@ -163,7 +185,7 @@ export class Room {
   }
 
   private vacate(p: Player) {
-    if (p.seat !== null) this.seats[p.seat] = { playerId: null, name: "" };
+    if (p.seat !== null) this.seats[p.seat] = emptySeat();
     p.seat = null;
   }
 
@@ -212,8 +234,53 @@ export class Room {
 
   /** 状態が変わるたびに呼ぶ: タイマー・CPUを進めて全員に配信 */
   private afterChange() {
-    if (this.status === "playing") this.scheduleTurn();
+    if (this.status === "playing") {
+      if (this.players.size > 0) this.scheduleTurn();
+      else {
+        // 誰も見ていない部屋でCPU同士が打ち続けないよう止めておく(誰かが戻ったら再開)
+        this.stopTimers();
+        this.lastScheduled = "";
+        this.deadline = null;
+      }
+    }
     this.broadcast();
+    this.onChange?.();
+  }
+
+  /** 保存用の状態。DO が入れ替わっても対局を続けられるようにする */
+  snapshot(): RoomSnapshot {
+    return {
+      v: 1,
+      size: this.game.size,
+      moves: this.game.moves.map((m) => m.point),
+      status: this.status,
+      result: this.result,
+      log: this.log.slice(),
+      seats: this.seats.map((s) => ({ name: s.name, key: s.key })),
+    };
+  }
+
+  /** snapshot() から復元する。誰も接続していない状態に戻るので、人の席は戻ってくるまでCPUが打つ */
+  restore(snap: RoomSnapshot) {
+    if (snap.v !== 1) return;
+    this.stopTimers();
+    const game = new Game(snap.size === 13 ? 13 : 9);
+    for (const pt of snap.moves) {
+      const r = pt === null ? game.pass() : game.play(pt);
+      if (!r.ok) break;
+    }
+    this.game = game;
+    this.status = snap.status;
+    this.result = snap.result;
+    if (snap.status === "ended") game.ended = true;
+    this.log = snap.log.slice(-50);
+    this.seats = Array.from({ length: SEAT_COUNT }, (_, i) => ({ playerId: null, name: snap.seats[i]?.name ?? "", key: snap.seats[i]?.key ?? null }));
+    // 待機中は席を空けておく(戻ってきた人が座り直す)
+    if (this.status === "waiting") this.seats = this.seats.map(() => emptySeat());
+    for (const p of this.players.values()) p.seat = null;
+    this.clearPins();
+    this.deadline = null;
+    this.lastScheduled = "";
   }
 
   private lastScheduled = "";

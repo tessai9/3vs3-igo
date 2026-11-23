@@ -49,6 +49,9 @@ export class GoApp extends HTMLElement {
   private conn: OnlineConn | null = null;
   /** 開いてから一度もつながらずに失敗した回数(部屋が無いときにロビーへ戻すため) */
   private failures = 0;
+  /** 続けて切断された回数(再接続の間隔を延ばすため) */
+  private retries = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private size = 9;
   private lastTurnSeat = -1;
   private ai: NnCpu | null = null;
@@ -99,6 +102,14 @@ export class GoApp extends HTMLElement {
     lobby.addEventListener("enter", (e) => this.enter((e as CustomEvent<OnlineConn>).detail));
     void this.boot();
     setInterval(() => this.tickTimer(), 200);
+    // アプリが前面に戻った・電波が戻ったら、待たずにつなぎ直す
+    const wake = () => {
+      if (document.visibilityState !== "visible" || !this.conn || this.ws) return;
+      this.retries = 0;
+      this.connect();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", wake);
   }
 
   private $(sel: string) {
@@ -121,8 +132,13 @@ export class GoApp extends HTMLElement {
       if (token) return this.enter({ kind: "match", roomId: match, token });
       if (await hasOnlineApi()) return this.showLobby("この対局には入れません(終了したか、別の端末で開かれています)");
     }
-    if (room && isInviteCode(room.toUpperCase()) && (await hasOnlineApi())) return this.enter({ kind: "friend", code: room.toUpperCase() });
-    if (room) return this.enter({ kind: "legacy", room });
+    if (room) {
+      const online = await hasOnlineApi();
+      if (online && isInviteCode(room.toUpperCase())) return this.enter({ kind: "friend", code: room.toUpperCase() });
+      // オンライン版には自由な名前の部屋は無い(ローカルの Node サーバーだけ)
+      if (online || IS_NATIVE) return this.showLobby("招待コードが正しくありません");
+      return this.enter({ kind: "legacy", room });
+    }
     // ローカルの Node サーバー(npm start)にはロビーが無いので、従来どおり lobby 部屋に入る
     if (await hasOnlineApi()) this.showLobby();
     // アプリではサーバーに届かなくてもロビーを出す(CPU練習は通信なしで遊べる)
@@ -148,6 +164,7 @@ export class GoApp extends HTMLElement {
     this.conn = conn;
     this.room = null;
     this.failures = 0;
+    this.retries = 0;
     const q = conn.kind === "match" ? `?match=${conn.roomId}` : `?room=${encodeURIComponent(conn.kind === "friend" ? conn.code : conn.room)}`;
     history.replaceState(null, "", location.pathname + q);
     (this.$("#lobby") as HTMLElement).hidden = true;
@@ -208,12 +225,15 @@ export class GoApp extends HTMLElement {
   private connect() {
     const conn = this.conn;
     if (!conn) return;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     const ws = new WebSocket(this.wsUrl(conn));
     this.ws = ws;
     let opened = false;
     ws.onopen = () => {
       opened = true;
       this.failures = 0;
+      this.retries = 0;
       this.$("#conn").textContent = "接続済み";
       this.$("#conn").className = "conn ok";
       this.send({ t: "hello", name: this.name });
@@ -230,11 +250,19 @@ export class GoApp extends HTMLElement {
       if (!opened && ++this.failures >= 4 && conn.kind !== "legacy") return this.showLobby("部屋が見つかりませんでした");
       this.$("#conn").textContent = "切断(再接続中…)";
       this.$("#conn").className = "conn";
-      setTimeout(() => {
+      // 1.5秒から倍々に延ばして最大30秒(サーバーが落ちているときに叩き続けない)
+      const delay = Math.min(30_000, 1500 * 2 ** this.retries++);
+      this.retryTimer = setTimeout(() => {
         if (this.conn === conn && !this.ws) this.connect();
-      }, 1500);
+      }, delay);
     };
-    ws.onmessage = (ev) => this.receive(JSON.parse(ev.data));
+    ws.onmessage = (ev) => {
+      try {
+        this.receive(JSON.parse(ev.data));
+      } catch (e) {
+        console.error("bad message", e);
+      }
+    };
   }
 
   /** 1人 + CPU5人で、ブラウザだけで対局する */
