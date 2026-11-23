@@ -42,7 +42,7 @@ npm run e2e
 ## デプロイ
 
 `CLOUDFLARE_API_TOKEN`(Workers 編集テンプレートのトークン)と `CLOUDFLARE_ACCOUNT_ID` を環境変数で設定して、`cloud/` で `npm run deploy`。
-クライアントのビルド(`public/app.js`)もこのコマンドの中で行う。公開先は `https://go3v3.<アカウントのサブドメイン>.workers.dev`。
+クライアントのビルド(`public/app.js`)もこのコマンドの中で行う。AI用のネットは事前にリポジトリ直下で `npm run models`(要 `pip install onnx numpy`)。無いとデプロイを止める。公開先は `https://go3v3.<アカウントのサブドメイン>.workers.dev`。
 
 トークンとアカウントIDはリポジトリに書かないこと。
 
