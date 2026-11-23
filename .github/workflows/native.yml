@@ -1,0 +1,120 @@
+name: Native apps
+
+# Web のテストに加えて、Capacitor でラップした Android / iOS アプリをビルドする。
+# 署名なしのデバッグビルドなので、ストアには出せない(手元の端末・シミュレータで試す用)。
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Test & build web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            cloud/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Cloud (Workers) tests
+        working-directory: cloud
+        run: npm ci && npm run typecheck && npm test
+      # KataGo のネット(ONNX)をアプリに同梱して、オフラインでもAI相手に練習できるようにする
+      - id: models-cache
+        uses: actions/cache@v4
+        with:
+          path: public/models
+          key: models-${{ hashFiles('tools/fetch-models.sh', 'tools/katago2onnx.py') }}
+      - if: steps.models-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.models-cache.outputs.cache-hit != 'true'
+        run: pip install onnx numpy && npm run models
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: public
+          retention-days: 3
+
+  android:
+    name: Android (debug APK)
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: public
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go3v3-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+  ios:
+    name: iOS (simulator build)
+    needs: web
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: public
+      - run: npx cap sync ios
+      - name: xcodebuild (iphonesimulator, unsigned)
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Zip App.app
+        run: |
+          cd build/ios/Build/Products/Debug-iphonesimulator
+          ditto -c -k --sequesterRsrc --keepParent App.app "$GITHUB_WORKSPACE/go3v3-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go3v3-ios-simulator-app
+          path: go3v3-ios-simulator.zip
+          retention-days: 14

@@ -24,6 +24,11 @@ Cloudflare Workers + Durable Objects にデプロイしてあり、URLを開く�
 https://tessai9.github.io/3vs3-igo/ を開くと、サーバーなしでブラウザだけで動く「あなた + CPU5人」の対局になります。
 main に push すると GitHub Actions で自動デプロイされます。ローカルでも `?local` を付けると同じモードになります。
 
+## スマホアプリ(Android / iOS)
+
+Capacitor で Web 版を包んだアプリを GitHub Actions でビルドしています(署名なしのデバッグ版)。
+Actions の実行結果から Android の APK と iOS シミュレータ用の App をダウンロードできます。詳しくは [docs/native-apps.md](docs/native-apps.md)。
+
 ## CPU を KataGo のネットにする(実験)
 
 オフラインモード(GitHub Pages / `?local`)では、ヘッダーの「CPU」で空席CPUの中身を選べます。

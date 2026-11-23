@@ -7,6 +7,7 @@ import { esc, type TeamPanel } from "./team-panel.js";
 import type { GoBoard } from "./go-board.js";
 import type { ClientMsg, RoomView, ServerMsg } from "../shared/protocol.js";
 import { Room } from "../shared/room.js";
+import { IS_NATIVE, WS_ORIGIN, inviteUrl } from "./config.js";
 import { AI_LEVELS, NnCpu, type AiLevel, type AiStatus } from "./nn-cpu.js";
 
 /** サーバーなし(GitHub Pages など)ではブラウザ内で部屋を動かし、CPUと対局する */
@@ -124,6 +125,8 @@ export class GoApp extends HTMLElement {
     if (room) return this.enter({ kind: "legacy", room });
     // ローカルの Node サーバー(npm start)にはロビーが無いので、従来どおり lobby 部屋に入る
     if (await hasOnlineApi()) this.showLobby();
+    // アプリではサーバーに届かなくてもロビーを出す(CPU練習は通信なしで遊べる)
+    else if (IS_NATIVE) this.showLobby("サーバーにつながりません。通信できる場所でもう一度開くか、CPUと練習してください");
     else this.enter({ kind: "legacy", room: "lobby" });
   }
 
@@ -166,7 +169,7 @@ export class GoApp extends HTMLElement {
   }
 
   private async invite(code: string) {
-    const url = `${location.origin}${location.pathname}?room=${code}`;
+    const url = inviteUrl(code);
     const data = { title: "3vs3 囲碁", text: `3vs3 囲碁で遊ぼう(招待コード ${code})`, url };
     try {
       if (navigator.share) return await navigator.share(data);
@@ -191,7 +194,7 @@ export class GoApp extends HTMLElement {
   }
 
   private wsUrl(c: OnlineConn) {
-    const base = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+    const base = WS_ORIGIN;
     const name = encodeURIComponent(this.name);
     if (c.kind === "legacy") return `${base}/ws?room=${encodeURIComponent(c.room)}`;
     if (c.kind === "match") return `${base}/api/rooms/${c.roomId}/ws?token=${encodeURIComponent(c.token)}`;
