@@ -1,6 +1,7 @@
 // オンライン版のロビー。クイックマッチ / フレンド部屋の作成 / 招待コードで参加 を選ぶ。
 // どれかが決まると "enter" イベント(detail: OnlineConn)を出す。
 import { esc } from "./team-panel.js";
+import { API_ORIGIN, WS_ORIGIN } from "./config.js";
 
 export type OnlineConn =
   | { kind: "legacy"; room: string }
@@ -12,7 +13,7 @@ export const isInviteCode = (s: string) => /^[A-HJKMNP-Z2-9]{6}$/.test(s);
 /** Cloudflare 版のAPIがあるか(ローカルの Node サーバーには無い) */
 export async function hasOnlineApi(): Promise<boolean> {
   try {
-    const r = await fetch("/api/health", { cache: "no-store" });
+    const r = await fetch(`${API_ORIGIN}/api/health`, { cache: "no-store" });
     return r.ok && (await r.json()).ok === true;
   } catch {
     return false;
@@ -95,8 +96,7 @@ export class GoLobby extends HTMLElement {
       this.$("#qsub").textContent = left > 0 ? `あと${left}秒でそろわなければCPUが入ります` : "まもなく開始します";
     };
     this.queueTimer = setInterval(update, 250);
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/queue?name=${encodeURIComponent(this.getName())}`);
+    const ws = new WebSocket(`${WS_ORIGIN}/api/queue?name=${encodeURIComponent(this.getName())}`);
     this.queueWs = ws;
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data) as QueueMsg;
@@ -120,7 +120,8 @@ export class GoLobby extends HTMLElement {
   private async createRoom() {
     (this.$("#create") as HTMLButtonElement).disabled = true;
     try {
-      const r = await fetch("/api/rooms", { method: "POST" });
+      const r = await fetch(`${API_ORIGIN}/api/rooms`, { method: "POST" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { code } = (await r.json()) as { code: string };
       this.enter({ kind: "friend", code });
     } catch {

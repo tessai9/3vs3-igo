@@ -2,10 +2,12 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>3vs3 囲碁</title>
   <style>
     html, body { margin: 0; background: #f6f3ec; }
+    /* ノッチやステータスバーに重ならないように(ネイティブアプリ / ホーム画面追加時) */
+    body { padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0); }
     @media (prefers-color-scheme: dark) { html, body { background: #1d1c1a; } }
   </style>
   <script type="module" src="./app.js"></script>

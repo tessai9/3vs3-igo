@@ -1,0 +1,11 @@
+{
+  "appId": "io.github.tessai9.go3v3",
+  "appName": "3vs3 囲碁",
+  "webDir": "public",
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never"
+  }
+}
