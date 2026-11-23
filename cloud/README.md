@@ -46,6 +46,8 @@ npm run e2e
 
 トークンとアカウントIDはリポジトリに書かないこと。
 
+GitHub の Settings → Secrets and variables → Actions に同じ2つを登録すると、main への push で自動デプロイされる(`.github/workflows/deploy-cloud.yml`)。未登録のあいだは何もしない。
+
 ## 画面
 
 トップ(`/`)はロビー。クイックマッチ / 部屋を作る / 招待コードで入る / CPUと練習(`?local`)を選ぶ。
