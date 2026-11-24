@@ -47,6 +47,8 @@ npm run e2e
 トークンとアカウントIDはリポジトリに書かないこと。
 
 GitHub の Settings → Secrets and variables → Actions に同じ2つを登録すると、main への push で自動デプロイされる(`.github/workflows/deploy-cloud.yml`)。未登録のあいだは何もしない。
+2026-11-24 に登録済み。トークンの保管場所はこの GitHub Secrets だけでよい(ローカルで手動デプロイしたいときだけ、その場で環境変数に入れる)。
+トークンを作り直したら Secrets の `CLOUDFLARE_API_TOKEN` を上書きする。手動で再デプロイしたいときは Actions の「Deploy to Cloudflare Workers」→ Run workflow。
 
 ## 画面
 
